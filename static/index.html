@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Receipt Studio</title><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
+<body><header class="topbar"><div class="brand"><span class="brand-icon">▤</span><div><strong>Receipt Studio</strong><small>Your details. Your receipt.</small></div></div><div class="actions"><button id="new">New receipt</button><button id="save">Save receipt</button><button class="primary" id="print">Print / Save PDF</button></div></header>
+<main><section class="editor"><div class="intro"><span class="eyebrow">RECEIPT BUILDER</span><h1>Make it yours.</h1><p>Edit the details below. Your receipt keeps the same order as the reference.</p></div>
+<div class="saved"><label for="saved">Open a saved receipt</label><select id="saved"><option value="">Choose a receipt…</option></select></div>
+<form id="form"><div id="fields"></div></form></section>
+<section class="preview-panel"><div class="preview-heading"><div><span class="eyebrow">LIVE PREVIEW</span><h2>Ready for the receipt roll.</h2></div><span id="paper-label">80 mm</span></div><div id="status" role="status" aria-live="polite">Loading receipt…</div><div id="preview"></div><p class="print-tip">Print at 100% scale with browser headers and footers off.<br>Choose matching 80 mm or 58 mm paper, or Save as PDF.</p></section></main></body></html>
