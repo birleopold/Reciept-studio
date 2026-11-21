@@ -19,7 +19,9 @@ On macOS or Linux, use `.venv/bin/python` in place of the Windows virtual enviro
 1. Enter your own business details and add at least one named line item. Enter quantity and unit price for each item.
 2. Enter any payment amounts separately. Receipt Studio does not collect payments or reconcile them against the total.
 3. Optionally enter QR content and choose a paper width.
-4. Select **Save receipt** to store a new snapshot, or **Print / Save PDF** to open the browser print dialog.
+4. Select **Issue receipt** to assign a number and store the original, or **Print / Save PDF** to open the browser print dialog.
+
+Use **Profiles and exports** to reuse business and printer settings, download a database backup, or export a receipt register.
 
 The default receipt is blank apart from the current date and initial item controls. Verification codes and FDNs must come from your invoicing system. Receipt Studio has no tax-system integration.
 

@@ -2,7 +2,7 @@
 
 `app.py` serves the browser editor, validates receipt data, renders HTML and writes saved snapshots. `static/app.js` manages the editor, preview and printing. User-entered text is escaped before rendering.
 
-The server multiplies unit price by quantity, rounds each line to two places using decimal half-even rounding, and adds those rounded lines. Changing a price or quantity does not change the manually entered payment amounts.
+The server multiplies unit price by quantity, rounds each line to two places using decimal half-even rounding, subtracts each rounded line discount, and applies the optional percentage tax after discounts. The payment summary displays a balance due or change based on the entered payments. Changing a price or quantity does not change the manually entered payment amounts.
 
 The server binds to IPv4 loopback. Use it locally with `127.0.0.1` or `localhost`. The app has no user accounts or access controls for shared or hosted use.
 

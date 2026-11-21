@@ -3,3 +3,15 @@
 @media print{body{background:white!important;margin:0!important}.topbar,.editor,.preview-heading,#status,.print-tip{display:none!important}main{display:block;margin:0;padding:0}.preview-panel{padding:0;border:0;background:white;min-height:0}#preview{display:block;padding:0;overflow:visible}.receipt{box-shadow:none;margin:0;print-color-adjust:exact;-webkit-print-color-adjust:exact}.receipt tr,.payment,.qr{break-inside:avoid}}
 
 .history-actions{display:flex;gap:8px;margin:8px 0 12px}.history-actions button{flex-shrink:0}.history-actions button:disabled{opacity:.55;cursor:default}#history-status{font-size:.875rem;color:#435b65;margin:8px 0}
+
+.studio-tools { margin-bottom: 18px; }
+.studio-tools a { color: #116f60; }
+.studio-tools form { display: grid; gap: 8px; }
+.receipt-logo { display: block; max-width: 70%; max-height: 22mm; margin: 0 auto 6px; object-fit: contain; }
+.item { grid-template-columns: minmax(95px, 1fr) repeat(3, minmax(65px, .65fr)) 30px; }
+@media (max-width: 600px) {
+  .item { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media print {
+  @page { margin: 0; }
+}
