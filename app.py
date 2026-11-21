@@ -4,9 +4,11 @@ import base64
 import io
 import json
 import sqlite3
+import webbrowser
+from threading import Timer
 from contextlib import contextmanager
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -17,12 +19,27 @@ import qrcode.image.svg
 
 ROOT = Path(__file__).resolve().parent
 DB = ROOT / 'receipts.sqlite3'
-DEFAULT = dict(headline='WE DELIVER', phone_label='Toll Free Number', phone1='0800 707070', phone2='0800 272727', business="CAFE JAVAS LTD - NAMIREMBE ROAD", address='Plot 18, Namirembe road, Kampala', tin='1000655193', title='Tax Invoice', customer='Cash Sale', date=date.today().isoformat(), number='KG178', invoice='CJABLCA20112628', verification='', fdn='', vat='Inclusive of VAT 18% where applicable', delivery_title='Delivery', recipient='Hope', area='Red Dot Distribution Ltd, CALL SIR APOLLO KAGWA RD, Red Dot Distribution Ltd, Uganda', delivery_phone='785376485', qr='', airtel='Airtel Money: *185*9# 1089441', momo='Momopay: *165*3# 115799', width='80', cash='638000', card='0', coupon='0', mobile='0', loyalty='0', gift='0', promo='0', items=[dict(name='AMAZING MUFFINS', qty='20', price='10000'), dict(name='COFFEE', qty='20', price='12000'), dict(name='DELIVERY CHARGES', qty='1', price='8000'), dict(name='SAMOSAS', qty='20', price='9500')])
+DEFAULT = dict(
+    headline='', phone_label='', phone1='', phone2='', business='',
+    address='', tin='', title='Receipt', customer='', date='', number='',
+    invoice='', verification='', fdn='', vat='', delivery_title='', recipient='',
+    area='', delivery_phone='', qr='', airtel='', momo='', width='80',
+    cash='0', card='0', coupon='0', mobile='0', loyalty='0', gift='0', promo='0',
+    items=[dict(name='', qty='1', price='0')],
+)
+
+
+def new_receipt():
+    return {**DEFAULT, 'date': date.today().isoformat(), 'items': [DEFAULT['items'][0].copy()]}
+
 PAYMENTS = [('cash', 'Cash'), ('card', 'Credit Card Amount'), ('coupon', 'Coupon Amount'), ('mobile', 'Mobile Money'), ('loyalty', 'Loyalty Amount'), ('gift', 'Giftcard Amount'), ('promo', 'Promo Amount')]
 
 def money(value):
     try:
-        n = Decimal(str(value))
+        value = str(value)
+        if len(value) > 64:
+            raise ValueError('Numeric inputs must be at most 64 characters.')
+        n = Decimal(value)
         if not n.is_finite() or n < 0 or n > Decimal('1000000000000'):
             raise ValueError('Amounts must be between 0 and 1 trillion.')
         return n
@@ -46,14 +63,25 @@ def normalize(raw):
         if qty == 0:
             raise ValueError('Item quantities must be greater than zero.')
         d['items'].append(dict(name=str(item['name'])[:300], qty=str(qty), price=str(price)))
+    if len(d['qr'].encode('utf-8')) > 2000:
+        raise ValueError('QR content must be at most 2,000 UTF-8 bytes.')
     for key, _ in PAYMENTS:
         d[key] = str(money(d[key]))
     return d
 
 def render(d):
     e = lambda key: escape(d[key])
-    total = sum((money(i['qty']) * money(i['price'])).quantize(Decimal('.01')) for i in d['items'])
-    rows = ''.join(f'<tr><td>{escape(i["name"])}</td><td>{money(i["qty"]):g}</td><td>{money(i["qty"]) * money(i["price"]):,.2f}</td></tr>' for i in d['items'])
+    amounts = [
+        (money(item['qty']) * money(item['price'])).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_EVEN
+        )
+        for item in d['items']
+    ]
+    total = sum(amounts)
+    rows = ''.join(
+        f'<tr><td>{escape(item["name"])}</td><td>{money(item["qty"]):g}</td><td>{amount:,.2f}</td></tr>'
+        for item, amount in zip(d['items'], amounts)
+    )
     payments = ''.join(f'<div class="payment"><span>{label}:</span><b>{money(d[key]):,.2f}</b></div>' for key, label in PAYMENTS)
     qr = ''
     if d['qr'].strip():
@@ -89,13 +117,27 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', kind + '; charset=utf-8')
         self.send_header('Content-Length', str(len(content)))
         self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Cache-Control', 'no-store')
         self.end_headers()
         self.wfile.write(content)
 
+    def local_request(self):
+        host = self.headers.get('Host', '').lower()
+        port = self.server.server_port
+        allowed = {f'127.0.0.1:{port}', f'localhost:{port}'}
+        if port == 80:
+            allowed.update({'127.0.0.1', 'localhost'})
+        if host not in allowed:
+            self.respond(json.dumps({'error': 'Open Receipt Studio via its loopback address.'}), 403)
+            return False
+        return True
+
     def do_GET(self):
+        if not self.local_request():
+            return
         path = urlparse(self.path).path
         if path == '/api/default':
-            return self.respond(json.dumps(DEFAULT))
+            return self.respond(json.dumps(new_receipt()))
         if path == '/api/receipts':
             with connect() as con:
                 rows = con.execute('SELECT id, number, created FROM receipts ORDER BY id DESC LIMIT 200').fetchall()
@@ -115,6 +157,11 @@ class Handler(BaseHTTPRequestHandler):
         self.respond('{}', 404)
 
     def do_POST(self):
+        if not self.local_request():
+            return
+        origin = self.headers.get('Origin')
+        if origin is not None and origin != 'http://' + self.headers['Host'].lower():
+            return self.respond(json.dumps({'error': 'Use the Receipt Studio tab to submit changes.'}), 403)
         if self.path not in ('/api/preview', '/api/receipts'):
             return self.respond('{}', 404)
         # JSON-only requests prevent cross-origin HTML forms from writing receipts.
@@ -132,13 +179,25 @@ class Handler(BaseHTTPRequestHandler):
                     cur = con.execute('INSERT INTO receipts(number, data) VALUES (?, ?)', (d['number'], json.dumps(d)))
                     result['id'] = cur.lastrowid
             self.respond(json.dumps(result))
-        except (ValueError, TypeError, KeyError) as exc:
+        except qrcode.exceptions.DataOverflowError:
+            self.respond(json.dumps({'error': 'QR content is too long to encode.'}), 400)
+        except (ValueError, TypeError, KeyError, InvalidOperation) as exc:
             self.respond(json.dumps({'error': str(exc)}), 400)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--open-browser', action='store_true')
     args = parser.parse_args()
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
-    print(f'Receipt Studio: http://127.0.0.1:{args.port}', flush=True)
-    server.serve_forever()
+    url = f'http://127.0.0.1:{server.server_port}'
+    print(f'Receipt Studio: {url}', flush=True)
+    if args.open_browser:
+        opener = Timer(0, webbrowser.open, args=(url,))
+        opener.daemon = True
+        opener.start()
+    with server:
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
