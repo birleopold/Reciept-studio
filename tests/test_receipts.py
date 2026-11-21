@@ -65,3 +65,22 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(receipt['business'], '')
         self.assertEqual(receipt['tin'], '')
+
+    def test_history_search_paginates_without_skips_or_duplicate_rows(self):
+        with app.connect() as connection:
+            connection.executemany(
+                'INSERT INTO receipts(number, data) VALUES (?, ?)',
+                [('R-%-A', '{}')] * 51 + [('R-other', '{}')],
+            )
+        status, first = self.request('GET', '/api/receipts/history?q=r-%25-a')
+        self.assertEqual(status, 200)
+        self.assertEqual([row['id'] for row in first['receipts']], list(range(51, 1, -1)))
+        with app.connect() as connection:
+            connection.execute(
+                'INSERT INTO receipts(number, data) VALUES (?, ?)', ('R-%-A', '{}'),
+            )
+        status, second = self.request('GET', f"/api/receipts/history?q=r-%25-a&before={first['next_before']}")
+        self.assertEqual(status, 200)
+        self.assertEqual([row['id'] for row in second['receipts']], [1])
+        self.assertIsNone(second['next_before'])
+        self.assertEqual(self.request('GET', '/api/receipts/history?before=-1')[0], 400)

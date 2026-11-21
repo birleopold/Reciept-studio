@@ -8,7 +8,7 @@ Scan a printed QR code with a separate device before relying on it. The app enco
 
 ## Manage saved receipts
 
-Each save creates a separate snapshot. The selector shows the newest 200 snapshots. Opening an existing receipt and saving again creates a new entry. Save before closing the tab if you want to preserve your edits.
+Each save creates a separate snapshot. Search by receipt number or select **Load older receipts** to browse earlier snapshots. Results appear newest first. Opening an existing receipt and saving again creates a new entry. Save before closing the tab if you want to preserve your edits.
 
 To back up, stop Receipt Studio with Ctrl+C, then copy `receipts.sqlite3` from the project folder to your backup location. To restore, stop the app, keep a separate copy of the current database, and copy the backup into the project folder under the original name. Restart the app and open a saved receipt to verify it. The database can include customer and delivery details. Store backups somewhere private.
 

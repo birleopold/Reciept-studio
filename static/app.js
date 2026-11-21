@@ -8,7 +8,7 @@ const groups = [
  ['Delivery details', [['delivery_title','Section heading'],['recipient','Recipient name'],['area','Delivery address','textarea'],['delivery_phone','Delivery phone']]],
  ['QR code & footer', [['qr','QR code content / verification URL','textarea'],['airtel','Airtel instructions'],['momo','MoMo instructions'],['width','Paper width','select']]]
 ];
-let timer, revision = 0, dirty = false, savedId = '', busy = false;
+let timer, revision = 0, dirty = false, savedId = '', busy = false, historyQuery = '', nextBefore = null;
 const discard = () => !dirty || confirm('Discard unsaved receipt changes?');
 window.addEventListener('beforeunload', event => {
  if (dirty) {event.preventDefault(); event.returnValue = '';}
@@ -22,6 +22,8 @@ function field(key,label,type='text',value='') {
  input.value=value; wrap.append(input); return wrap;
 }
 function build(d) {
+ clearTimeout(timer);
+ ++revision;
  dirty=false; $('#fields').replaceChildren();
  for(const [title,fields] of groups){
   const section=document.createElement('details'); section.open=['Delivery header','Items'].includes(title);
@@ -55,35 +57,51 @@ function status(message,error=false){$('#status').textContent=message;$('#status
 async function preview(){const current=++revision;try{const d=collect(),r=await api('/api/preview',d);if(current!==revision)return false;$('#preview').innerHTML=r.html;$('#paper-label').textContent=d.width+' mm';let style=$('#print-size');if(!style){style=document.createElement('style');style.id='print-size';document.head.append(style);}style.textContent=`@media print {@page {size: ${d.width}mm auto; margin: 0;} html,body {width:${d.width}mm;}}`;status('Preview up to date');return true;}catch(e){if(current===revision)status(e.message,true);return false;}}
 function changed(){dirty=true;schedule();}
 function schedule(){++revision;clearTimeout(timer);timer=setTimeout(preview,200);}
-async function saved(){const rows=await api('/api/receipts');$('#saved').replaceChildren(new Option('Choose a receipt…',''));for(const r of rows)$('#saved').add(new Option(`${r.number||'Untitled'} · ${r.created} UTC · #${r.id}`,r.id));}
+async function saved({query = historyQuery, append = false} = {}) {
+ const params = new URLSearchParams({q: query});
+ if (append) params.set('before', nextBefore);
+ const result = await api('/api/receipts/history?' + params);
+ const select = $('#saved');
+ if (!append) select.replaceChildren(new Option('Choose a receipt…', ''));
+ for (const receipt of result.receipts) {
+  select.add(new Option(`${receipt.number || 'Untitled'} · ${receipt.created} UTC · #${receipt.id}`, receipt.id));
+ }
+ historyQuery = query;
+ nextBefore = result.next_before;
+ select.value = [...select.options].some(option => option.value === savedId) ? savedId : '';
+ const count = select.options.length - 1;
+ $('#history-status').textContent = count ? `${count} receipts shown` : 'No matching receipts.';
+}
 $('#form').addEventListener('input',changed);$('#form').addEventListener('submit',e=>e.preventDefault());
 async function action(work) {
  if (busy) return;
  busy = true;
- const controls = ['#save', '#print', '#new', '#saved'].map($);
+ const controls = ['#save', '#print', '#new', '#saved', '#receipt-search', '#search-receipts', '#more-receipts'].map($);
  controls.forEach(control => { control.disabled = true; });
  $('#fields').inert = true;
- clearTimeout(timer);
- ++revision;
  try { await work(); }
  catch (error) { status(error.message, true); }
  finally {
   $('#fields').inert = false;
   controls.forEach(control => { control.disabled = false; });
+  $('#more-receipts').disabled = nextBefore === null;
   busy = false;
  }
 }
 
 $('#save').onclick = () => action(async () => {
  const result = await api('/api/receipts', collect());
+ clearTimeout(timer);
+ ++revision;
  dirty = false;
  $('#preview').innerHTML = result.html;
  savedId = String(result.id);
  status('Receipt saved on this computer.');
- try { await saved(); $('#saved').value = savedId; }
+ try { await saved({query: ''}); $('#receipt-search').value = ''; }
  catch { status('Receipt saved, but the saved list could not be refreshed.', true); }
 });
 $('#print').onclick = () => action(async () => {
+ clearTimeout(timer);
  if (!await preview()) return;
  await Promise.all([...$('#preview').querySelectorAll('img')].map(image => image.decode()));
  window.print();
@@ -96,7 +114,15 @@ async function openReceipt(id) {
 $('#new').onclick = () => { if (!busy && discard()) return action(() => openReceipt('')); };
 $('#saved').onchange = event => {
  const id = event.target.value;
- event.target.value = savedId;
+ event.target.value = [...event.target.options].some(option => option.value === savedId) ? savedId : '';
  if (!busy && id && discard()) return action(() => openReceipt(id));
+};
+$('#history-search').onsubmit = event => {
+ event.preventDefault();
+ const query = $('#receipt-search').value.trim();
+ return action(() => saved({query}));
+};
+$('#more-receipts').onclick = () => {
+ if (nextBefore !== null) return action(() => saved({append: true}));
 };
 action(async () => { await openReceipt(''); await saved(); });

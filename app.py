@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import qrcode
 import qrcode.image.svg
@@ -135,9 +135,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.local_request():
             return
-        path = urlparse(self.path).path
+        url = urlparse(self.path)
+        path = url.path
         if path == '/api/default':
             return self.respond(json.dumps(new_receipt()))
+        if path == '/api/receipts/history':
+            return self.receipt_history(url.query)
         if path == '/api/receipts':
             with connect() as con:
                 rows = con.execute('SELECT id, number, created FROM receipts ORDER BY id DESC LIMIT 200').fetchall()
@@ -155,6 +158,35 @@ class Handler(BaseHTTPRequestHandler):
             name, kind = files[path]
             return self.respond((ROOT / 'static' / name).read_bytes(), kind=kind)
         self.respond('{}', 404)
+
+    def receipt_history(self, query):
+        try:
+            params = parse_qs(query, max_num_fields=10)
+            search = params.get('q', [''])[0].strip()
+            before = int(params.get('before', ['0'])[0])
+            if len(search) > 200 or not 0 <= before < 2**63:
+                raise ValueError
+        except ValueError:
+            return self.respond(json.dumps({'error': 'Invalid receipt history filter.'}), 400)
+
+        conditions = []
+        values = []
+        if search:
+            conditions.append('instr(lower(number), lower(?)) > 0')
+            values.append(search)
+        if before:
+            conditions.append('id < ?')
+            values.append(before)
+        where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
+        with connect() as con:
+            rows = con.execute(
+                'SELECT id, number, created FROM receipts' + where + ' ORDER BY id DESC LIMIT 51',
+                values,
+            ).fetchall()
+        return self.respond(json.dumps({
+            'receipts': [dict(id=row[0], number=row[1], created=row[2]) for row in rows[:50]],
+            'next_before': rows[49][0] if len(rows) > 50 else None,
+        }))
 
     def do_POST(self):
         if not self.local_request():
