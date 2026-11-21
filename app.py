@@ -10,7 +10,7 @@ import json
 import sqlite3
 import webbrowser
 from threading import Timer
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 from html import escape
@@ -162,6 +162,44 @@ def connect():
     finally:
         con.close()
 
+def recover_database(backup_path, destination):
+    """Copy a verified backup into a new database without replacing any file."""
+    with closing(sqlite3.connect(backup_path.resolve().as_uri() + '?mode=ro', uri=True)) as source:
+        source.execute('PRAGMA trusted_schema = OFF')
+        source.execute('BEGIN')
+        if source.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
+            raise ValueError('The SQLite backup failed its integrity check.')
+        tables = dict(source.execute(
+            "SELECT name, type FROM sqlite_schema WHERE name IN ('receipts', 'issued')"
+        ))
+        if tables.get('receipts') != 'table':
+            raise ValueError('This backup does not contain a Receipt Studio receipt table.')
+
+        for row_id, raw in source.execute('SELECT id, data FROM receipts'):
+            try:
+                normalize(json.loads(raw))
+            except (ValueError, TypeError, InvalidOperation) as exc:
+                raise ValueError(f'Receipt {row_id} in the backup is invalid.') from exc
+        if 'issued' in tables:
+            if tables['issued'] != 'table':
+                raise ValueError('The backup has an invalid issued-receipt table.')
+            missing = source.execute(
+                'SELECT 1 FROM issued LEFT JOIN receipts ON receipts.id = issued.receipt_id '
+                'WHERE receipts.id IS NULL LIMIT 1'
+            ).fetchone()
+            if missing:
+                raise ValueError('The backup contains an issued receipt with no saved record.')
+
+        # Exclusive file creation ensures an existing database is never replaced.
+        destination.touch(exist_ok=False)
+        try:
+            with closing(sqlite3.connect(destination)) as target:
+                source.backup(target)
+        except (OSError, sqlite3.Error):
+            destination.unlink(missing_ok=True)
+            raise
+
+
 class Handler(BaseHTTPRequestHandler):
     def respond(self, content, status=200, kind='application/json', filename=None):
         content = content.encode() if isinstance(content, str) else content
@@ -170,6 +208,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(content)))
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Cache-Control', 'no-store')
+        if kind == 'text/html':
+            self.send_header(
+                'Content-Security-Policy',
+                "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                "img-src data:; connect-src 'self'; form-action 'self'; "
+                "base-uri 'none'; frame-ancestors 'none'",
+            )
         if filename:
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
         self.end_headers()
@@ -344,7 +389,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--open-browser', action='store_true')
+    parser.add_argument('--database', type=Path, default=DB, help='SQLite file to open')
+    parser.add_argument('--recover', nargs=2, type=Path, metavar=('BACKUP', 'NEW_DATABASE'))
     args = parser.parse_args()
+    if args.recover:
+        try:
+            recover_database(*args.recover)
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            parser.exit(1, f'Recovery failed: {exc}\n')
+        parser.exit(0, f'Recovered database: {args.recover[1]}\n')
+    DB = args.database.resolve()
     server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
     url = f'http://127.0.0.1:{server.server_port}'
     print(f'Receipt Studio: {url}', flush=True)

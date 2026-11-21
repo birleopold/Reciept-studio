@@ -124,3 +124,21 @@ class ReceiptTests(unittest.TestCase):
         connection.request('GET', '/api/export?from=1900-01-01&to=1900-01-02')
         response = connection.getresponse()
         self.assertEqual(len(response.read().decode().splitlines()), 1)
+
+    def test_recovery_preserves_existing_database_and_rejects_other_sqlite_files(self):
+        receipt = app.new_receipt()
+        receipt['items'][0]['name'] = 'Recovery sample'
+        self.assertEqual(self.request('POST', '/api/receipts', receipt)[0], 200)
+        recovered = Path(self.temp.name) / 'recovered.sqlite3'
+        app.recover_database(app.DB, recovered)
+        with app.sqlite3.connect(recovered) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM receipts').fetchone(), (1,))
+        with self.assertRaises(FileExistsError):
+            app.recover_database(app.DB, recovered)
+        unrelated = Path(self.temp.name) / 'unrelated.sqlite3'
+        with app.sqlite3.connect(unrelated) as db:
+            db.execute('CREATE TABLE unrelated (id INTEGER)')
+        missing = Path(self.temp.name) / 'should-not-exist.sqlite3'
+        with self.assertRaisesRegex(ValueError, 'Receipt Studio'):
+            app.recover_database(unrelated, missing)
+        self.assertFalse(missing.exists())

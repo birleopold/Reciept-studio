@@ -10,6 +10,19 @@ Scan a printed QR code with a separate device before relying on it. The app enco
 
 Issue receipt assigns a unique number and saves the original. Use **Reprint / Save PDF** to print it again or **Duplicate as draft** to create an editable copy with a new number on issue. Older snapshots are still editable. Search by receipt number or select **Load older receipts** to browse earlier snapshots. Results appear newest first. The active draft and saved business/printer profiles are stored in the current browser. Reloading restores the draft. Starting a new receipt or opening history replaces the draft after confirmation when there are edits. Use the same browser profile and localhost URL to keep access to autosaved drafts and profiles.
 
-Under **Profiles and exports**, choose **Download database backup** to take a consistent SQLite copy while the app runs. This includes saved receipts and issued originals. Browser drafts and profiles are kept separately. You can also export a CSV register filtered by UTC save date. With no range, the export includes all saved receipts. To restore, stop the app, keep a separate copy of the current database, and copy the backup into the project folder under the original name. Restart the app and open a saved receipt to verify it. The database can include customer and delivery details. Store backups somewhere private.
+Under **Profiles and exports**, choose **Download database backup** to take a consistent SQLite copy while the app runs. This includes saved receipts and issued originals. Browser drafts and profiles are kept separately. You can also export a CSV register filtered by UTC save date. With no range, the export includes all saved receipts.
+
+### Recover a backup
+
+From the project folder, run:
+
+```text
+python app.py --recover "receipt-studio.sqlite3" "recovered.sqlite3"
+python app.py --database "recovered.sqlite3" --port 8766
+```
+
+Use your virtual environment's Python if needed. The first command checks integrity and creates a new file only. It refuses to overwrite any existing file. Open http://127.0.0.1:8766 and verify the receipt register and a reprint. To keep using that database, start Receipt Studio with `--database "recovered.sqlite3"` on subsequent launches.
+
+The database can include customer and delivery details. Store backups somewhere private.
 
 Reference: [MDN printing guide](https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Media_queries/Printing) and [Python SQLite documentation](https://docs.python.org/3/library/sqlite3.html).
